@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#167c73">
+<title>ナス日射比例潅水スケジューラー</title>
+<style>
+:root{--green:#167c73;--green2:#e6f3ef;--ink:#20312f;--muted:#667572;--line:#d9e3e0;--bg:#f4f7f6;--orange:#e88b32;--white:#fff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif}
+header{background:var(--green);color:white;padding:20px 16px 18px;padding-top:calc(18px + env(safe-area-inset-top));}
+header h1{font-size:20px;margin:0 0 5px}header p{margin:0;font-size:12px;opacity:.9}
+main{max-width:850px;margin:auto;padding:14px 12px 40px}
+.card{background:white;border:1px solid var(--line);border-radius:15px;padding:15px;margin:0 0 13px;box-shadow:0 2px 8px #173b3210}
+h2{font-size:16px;margin:0 0 12px}.sub{font-size:12px;color:var(--muted);line-height:1.6}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
+input,select,textarea,button{font:inherit}input,select,textarea{width:100%;border:1px solid #cbd8d4;border-radius:9px;padding:10px;background:#fff;color:var(--ink);min-height:42px}
+textarea{min-height:100px;resize:vertical;font-size:13px}
+.field{min-width:0}.unit{font-size:11px;color:var(--muted);margin-top:4px}
+button{border:0;border-radius:10px;padding:11px 14px;background:var(--green);color:white;font-weight:650;cursor:pointer}
+button.secondary{background:var(--green2);color:var(--green)}button.light{background:#eef2f1;color:var(--ink)}
+.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.metric{background:#f1f7f5;border-radius:12px;padding:12px}
+.metric small{display:block;color:var(--muted);font-size:11px}.metric strong{font-size:24px;display:block;margin-top:4px}.metric em{font-size:11px;font-style:normal;color:var(--muted)}
+table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:9px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}th{font-size:11px;color:var(--muted);font-weight:600}th:first-child,td:first-child{text-align:left}
+.tablewrap{overflow-x:auto}
+.pill{display:inline-block;background:#fff2df;color:#8b5416;border-radius:20px;padding:3px 8px;font-size:11px}
+.note{background:#fff8e9;border-left:3px solid var(--orange);padding:10px 12px;border-radius:7px;font-size:12px;line-height:1.65}
+.good{color:#13775e}.error{color:#b23b32}.hidden{display:none}
+footer{text-align:center;color:var(--muted);font-size:11px;padding:8px 0 25px}
+@media(min-width:650px){.grid{grid-template-columns:repeat(4,minmax(0,1fr))}.metrics{grid-template-columns:repeat(4,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+<header><h1>ナス日射比例潅水スケジューラー</h1><p>南関町・12aハウス用｜予報日射量から潅水計画を試算</p></header>
+<main>
+<section class="card">
+<h2>① ハウス・潅水設定</h2>
+<div class="grid">
+ <div class="field"><label for="area">栽培面積</label><input id="area" type="number" value="1200" min="1" step="10"><div class="unit">㎡</div></div>
+ <div class="field"><label for="plants">株数</label><input id="plants" type="number" value="1823" min="1"><div class="unit">株</div></div>
+ <div class="field"><label for="coef">日射量係数</label><input id="coef" type="number" value="250" min="0" step="5"><div class="unit">L / MJ・10a（仮設定・変更可）</div></div>
+ <div class="field"><label for="flow">ハウス全体の吐出量</label><input id="flow" type="number" value="240" min="1" step="1"><div class="unit">L / 分（理論値）</div></div>
+ <div class="field"><label for="threshold">潅水開始の積算日射量</label><input id="threshold" type="number" value="0.5" min="0" step="0.1"><div class="unit">MJ/㎡</div></div>
+ <div class="field"><label for="split">2回に分ける時間別日射量</label><input id="split" type="number" value="1.2" min="0.1" step="0.1"><div class="unit">MJ/㎡・時を超えたら2分割</div></div>
+ <div class="field"><label for="startOffset">開始時刻の補正</label><select id="startOffset"><option value="0">予報時刻どおり</option><option value="30" selected>30分後</option><option value="15">15分後</option></select><div class="unit">最初の潅水時刻に適用</div></div>
+ <div class="field"><label for="rounding">潅水時間の丸め</label><select id="rounding"><option value="1">1秒単位</option><option value="5" selected>5秒単位</option><option value="10">10秒単位</option></select><div class="unit">短時間の頻繁なON/OFFを抑制</div></div>
+</div>
+<p class="sub">吐出量240L/分は、10cmピッチ・20cc/分の点滴孔が約12,000個あるとして計算した理論値です。実測流量が分かったら変更してください。</p>
+</section>
+
+<section class="card">
+<h2>② 時間別の日射量を入力</h2>
+<p class="sub">「このあとてんき」の表を見ながら入力できます。1行に「時刻,日射量」の形式で貼り付けることもできます。</p>
+<div class="grid">
+ <div class="field"><label for="forecastDate">予報日</label><input id="forecastDate" type="date" value="2026-11-12"></div>
+ <div class="field"><label for="sourceTotal">予報画面の「このあと日射量」</label><input id="sourceTotal" type="number" step="0.01" placeholder="例 3.9"><div class="unit">照合用。計算には時間別データを使用</div></div>
+</div>
+<label for="forecastText" style="margin-top:12px">時間別データ（時刻,日射量）</label>
+<textarea id="forecastText" spellcheck="false">05:00,0
+06:00,0
+07:00,0
+08:00,0.20
+09:00,0.64
+10:00,1.02
+11:00,1.61
+12:00,1.97
+13:00,1.95
+14:00,1.64
+15:00,1.15
+16:00,0.74
+17:00,0.24
+18:00,0.01
+19:00,0
+20:00,0
+21:00,0
+22:00,0</textarea>
+<div class="actions">
+<button id="calculate">潅水計画を計算</button>
+<button class="secondary" id="demo">11/12のサンプルを戻す</button>
+<button class="light" id="clear">入力を消去</button>
+</div>
+<p id="message" class="sub" aria-live="polite"></p>
+</section>
+
+<section id="results" class="hidden">
+<section class="card">
+<h2>③ 今日の潅水計画</h2>
+<div class="metrics">
+ <div class="metric"><small>予測日射量合計</small><strong id="mRad">—</strong><em>MJ/㎡</em></div>
+ <div class="metric"><small>推定必要水量</small><strong id="mWater">—</strong><em>L / ハウス全体</em></div>
+ <div class="metric"><small>潅水時間合計</small><strong id="mMinutes">—</strong><em>分（全系統同時の場合）</em></div>
+ <div class="metric"><small>株当たり水量</small><strong id="mPlant">—</strong><em>L / 株</em></div>
+</div>
+<p id="comparison" class="sub"></p>
+<div class="note">これは日射量に比例して1日の水量を時間帯に配分した試算です。土壌水分、排液率、草勢、天候急変を反映した自動制御ではありません。実際の潅水前に株の状態と土壌を確認してください。</div>
+</section>
+<section class="card">
+<h2>④ 潅水時刻・時間一覧</h2>
+<div class="tablewrap"><table><thead><tr><th>予定時刻</th><th>日射量</th><th>水量</th><th>潅水時間</th><th>分割</th></tr></thead><tbody id="scheduleBody"></tbody></table></div>
+<p id="scheduleNote" class="sub"></p>
+</section>
+<section class="card">
+<h2>⑤ 時間別の配分</h2>
+<div class="tablewrap"><table><thead><tr><th>予報時刻</th><th>日射量</th><th>配分水量</th><th>潅水時間</th></tr></thead><tbody id="hourBody"></tbody></table></div>
+</section>
+</section>
+<footer>試算用ツール v1.0｜入力データはこの端末のブラウザ内で処理します</footer>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const demo=`05:00,0
+06:00,0
+07:00,0
+08:00,0.20
+09:00,0.64
+10:00,1.02
+11:00,1.61
+12:00,1.97
+13:00,1.95
+14:00,1.64
+15:00,1.15
+16:00,0.74
+17:00,0.24
+18:00,0.01
+19:00,0
+20:00,0
+21:00,0
+22:00,0`;
+$('demo').onclick=()=>{$('forecastText').value=demo;$('forecastDate').value='2026-11-12';$('sourceTotal').value='3.9';$('message').textContent='サンプルデータを読み込みました。';};
+$('clear').onclick=()=>{$('forecastText').value='';$('results').classList.add('hidden');$('message').textContent='入力を消去しました。';};
+function parseRows(){
+ const rows=[];
+ for(const [i,line0] of $('forecastText').value.split(/\n/).entries()){
+  const line=line0.trim(); if(!line)continue;
+  const parts=line.split(/[,\t;，；\s]+/).filter(Boolean);
+  if(parts.length<2){throw new Error(`${i+1}行目：時刻と日射量を「08:00,0.2」の形式で入力してください。`);}
+  const tm=parts[0].match(/^(\d{1,2}):(\d{2})$/);
+  const val=Number(parts[1]);
+  if(!tm||!Number.isFinite(val)||val<0)throw new Error(`${i+1}行目の入力を確認してください。`);
+  rows.push({time:`${String(+tm[1]).padStart(2,'0')}:${tm[2]}`,hour:+tm[1],rad:val});
+ }
+ rows.sort((a,b)=>a.hour-b.hour);
+ if(!rows.length)throw new Error('時間別の日射量を入力してください。');
+ return rows;
+}
+function roundSeconds(sec,unit){return Math.max(0,Math.round(sec/unit)*unit);}
+function fmtTime(min){min=((min%1440)+1440)%1440;return `${String(Math.floor(min/60)).padStart(2,'0')}:${String(min%60).padStart(2,'0')}`;}
+function calculate(){
+ try{
+  const rows=parseRows();
+  const area=+$('area').value, plants=+$('plants').value, coef=+$('coef').value, flow=+$('flow').value;
+  const threshold=+$('threshold').value, split=+$('split').value, offset=+$('startOffset').value, unit=+$('rounding').value;
+  if([area,plants,flow].some(x=>!Number.isFinite(x)||x<=0)||!Number.isFinite(coef)||coef<0)throw new Error('面積・株数・吐出量・係数を確認してください。');
+  const totalRad=rows.reduce((s,r)=>s+r.rad,0);
+  // Coefficient is L per MJ per 10a; scale to the entered cultivation area.
+  const totalWater=totalRad*coef*(area/1000);
+  const totalSec=totalWater/flow*60;
+  let cumulative=0, startIndex=-1, firstStartMin=0, schedule=[], hourly=[];
+  // Find the hour in which the cumulative-radiation start threshold is reached.
+  for(let i=0;i<rows.length;i++){
+   const before=cumulative;
+   cumulative+=rows[i].rad;
+   if(startIndex<0 && cumulative+1e-9>=threshold && rows[i].rad>0){
+    const fraction=Math.max(0,Math.min(1,(threshold-before)/rows[i].rad));
+    startIndex=i;
+    firstStartMin=rows[i].hour*60+fraction*60+offset;
+   }
+  }
+  // Once irrigation starts, distribute the full daily target across the remaining forecast hours.
+  const eligibleRad=startIndex>=0?rows.slice(startIndex).reduce((sum,r)=>sum+r.rad,0):0;
+  for(let i=0;i<rows.length;i++){
+   const r=rows[i];
+   if(startIndex<0 || i<startIndex || r.rad<=0 || eligibleRad<=0){
+    hourly.push({r,water:0,sec:0,skip:true});continue;
+   }
+   const water=totalWater*r.rad/eligibleRad;
+   const sec=water/flow*60;
+   const n=r.rad>split?2:1;
+   const eachWater=water/n, eachSec=sec/n;
+   let used=0;
+   for(let j=0;j<n;j++){
+    const s=roundSeconds(eachSec,unit); used+=s;
+    // First event follows the threshold crossing; later hours are placed near the middle.
+    const minute=(i===startIndex?firstStartMin:r.hour*60+30)+(n===2?j*30:0);
+    schedule.push({time:fmtTime(Math.round(minute)),rad:r.rad,water:eachWater,sec:s,part:n===2?`${j+1}/2`:'1回'});
+   }
+   hourly.push({r,water,sec:used,skip:false});
+  }
+  $('results').classList.remove('hidden');
+  $('mRad').textContent=totalRad.toFixed(2);
+  $('mWater').textContent=Math.round(totalWater).toLocaleString('ja-JP');
+  $('mMinutes').textContent=(totalSec/60).toFixed(1);
+  $('mPlant').textContent=(totalWater/plants).toFixed(2);
+  const source=Number($('sourceTotal').value);
+  $('comparison').textContent=Number.isFinite(source)&&source>0?`予報画面の「このあと日射量」${source.toFixed(2)}MJ/㎡との差：${(totalRad-source).toFixed(2)}MJ/㎡（時間別入力の合計との差）`:'時間別データの合計を基準に計算しています。';
+  $('scheduleBody').innerHTML=schedule.length?schedule.map(x=>`<tr><td><b>${x.time}</b></td><td>${x.rad.toFixed(2)}</td><td>${x.water.toFixed(1)}L</td><td>${x.sec}秒</td><td><span class="pill">${x.part}</span></td></tr>`).join(''):'<tr><td colspan="5">潅水開始条件に達していません。</td></tr>';
+  $('hourBody').innerHTML=hourly.map(x=>`<tr><td>${x.r.time}</td><td>${x.r.rad.toFixed(2)}</td><td>${x.water.toFixed(1)}L</td><td>${x.sec?x.sec+'秒':'—'}</td></tr>`).join('');
+  $('scheduleNote').textContent=`潅水予定 ${schedule.length}回。開始判定は積算${threshold.toFixed(1)}MJ/㎡、開始後の時刻は予報時間帯内の均等配分を仮定しています。`;
+  $('message').innerHTML='<span class="good">計算しました。</span> 設定値と実際の株の状態を確認して利用してください。';
+ }catch(e){$('message').innerHTML=`<span class="error">${e.message}</span>`;}
+}
+$('calculate').onclick=calculate;
+calculate();
+</script>
+</body>
+</html>
