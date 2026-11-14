@@ -36,6 +36,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:9px 6px;b
 .pill{display:inline-block;background:#fff2df;color:#8b5416;border-radius:20px;padding:3px 8px;font-size:11px}
 .note{background:#fff8e9;border-left:3px solid var(--orange);padding:10px 12px;border-radius:7px;font-size:12px;line-height:1.65}
 .good{color:#13775e}.error{color:#b23b32}.hidden{display:none}
+.forecast-status{background:#f1f7f5;border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.6;margin-top:10px}.forecast-status strong{color:var(--green)}
 footer{text-align:center;color:var(--muted);font-size:11px;padding:8px 0 25px}
 @media(min-width:650px){.grid{grid-template-columns:repeat(4,minmax(0,1fr))}.metrics{grid-template-columns:repeat(4,minmax(0,1fr))}}
 </style>
@@ -59,7 +60,18 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:8px 0 25px}
 </section>
 
 <section class="card">
-<h2>② 時間別の日射量を入力</h2>
+<h2>② 今日の日射予報を自動取得</h2>
+<p class="sub">GPSで現在地を取得します。位置情報が使えない場合は、熊本県南関町を標準地点として予報を取得します。</p>
+<div class="actions" style="margin-top:8px">
+ <button id="fetchForecast">現在地から日射予報を取得</button>
+ <button class="secondary" id="fetchNankan">南関町の予報を取得</button>
+</div>
+<div id="forecastStatus" class="forecast-status" aria-live="polite">まだ予報を取得していません。ボタンを押すと時間別日射量を自動入力します。</div>
+<p class="sub">予報データ：<a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>（CC BY 4.0）。屋外の日射予報値を使用するため、実際のハウス内日射量とは差が出る場合があります。取得後、必要に応じて数値を確認・修正してください。</p>
+</section>
+
+<section class="card">
+<h2>③ 時間別の日射量を確認・入力</h2>
 <p class="sub">「このあとてんき」の表を見ながら入力できます。1行に「時刻,日射量」の形式で貼り付けることもできます。</p>
 <div class="grid">
  <div class="field"><label for="forecastDate">予報日</label><input id="forecastDate" type="date" value="2026-11-12"></div>
@@ -94,7 +106,7 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:8px 0 25px}
 
 <section id="results" class="hidden">
 <section class="card">
-<h2>③ 今日の潅水計画</h2>
+<h2>④ 今日の潅水計画</h2>
 <div class="metrics">
  <div class="metric"><small>予測日射量合計</small><strong id="mRad">—</strong><em>MJ/㎡</em></div>
  <div class="metric"><small>推定必要水量</small><strong id="mWater">—</strong><em>L / ハウス全体</em></div>
@@ -105,19 +117,74 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:8px 0 25px}
 <div class="note">これは日射量に比例して1日の水量を時間帯に配分した試算です。土壌水分、排液率、草勢、天候急変を反映した自動制御ではありません。実際の潅水前に株の状態と土壌を確認してください。</div>
 </section>
 <section class="card">
-<h2>④ 潅水時刻・時間一覧</h2>
+<h2>⑤ 潅水時刻・時間一覧</h2>
 <div class="tablewrap"><table><thead><tr><th>予定時刻</th><th>日射量</th><th>水量</th><th>潅水時間</th><th>分割</th></tr></thead><tbody id="scheduleBody"></tbody></table></div>
 <p id="scheduleNote" class="sub"></p>
 </section>
 <section class="card">
-<h2>⑤ 時間別の配分</h2>
+<h2>⑥ 時間別の配分</h2>
 <div class="tablewrap"><table><thead><tr><th>予報時刻</th><th>日射量</th><th>配分水量</th><th>潅水時間</th></tr></thead><tbody id="hourBody"></tbody></table></div>
 </section>
 </section>
-<footer>試算用ツール v1.0｜入力データはこの端末のブラウザ内で処理します</footer>
+<footer>試算用ツール v1.1｜日射予報：Open-Meteo｜計算はこの端末で実行</footer>
 </main>
 <script>
 const $=id=>document.getElementById(id);
+const NANKAN={latitude:33.0597,longitude:130.5438,name:'熊本県南関町（標準地点）'};
+function tokyoDateParts(date=new Date()){
+ const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date);
+ const v={}; for(const p of parts) if(p.type!=='literal') v[p.type]=p.value;
+ return {date:`${v.year}-${v.month}-${v.day}`,hour:Number(v.hour),minute:Number(v.minute)};
+}
+async function loadSolarForecast(latitude,longitude,placeName){
+ const status=$('forecastStatus');
+ status.textContent='日射予報を取得しています…';
+ $('fetchForecast').disabled=true; $('fetchNankan').disabled=true;
+ try{
+  const params=new URLSearchParams({latitude:String(latitude),longitude:String(longitude),hourly:'shortwave_radiation',timezone:'Asia/Tokyo',forecast_days:'2'});
+  const response=await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`,{cache:'no-store'});
+  if(!response.ok) throw new Error(`予報サーバーとの通信に失敗しました（${response.status}）`);
+  const data=await response.json();
+  if(!data.hourly||!Array.isArray(data.hourly.time)||!Array.isArray(data.hourly.shortwave_radiation)) throw new Error('時間別日射量データが見つかりませんでした。');
+  const now=tokyoDateParts();
+  const firstAllowedHour=now.hour+(now.minute>0?1:0);
+  const rows=[];
+  for(let i=0;i<data.hourly.time.length;i++){
+   const stamp=data.hourly.time[i];
+   if(!stamp.startsWith(now.date+'T')) continue;
+   const hour=Number(stamp.slice(11,13));
+   if(hour<firstAllowedHour) continue;
+   const watts=Number(data.hourly.shortwave_radiation[i]);
+   if(!Number.isFinite(watts)||watts<0) continue;
+   // Open-Meteo shortwave_radiation is hourly mean W/m²; convert one hour to MJ/m².
+   const mj=watts*0.0036;
+   rows.push({hour,rad:mj});
+  }
+  if(!rows.length) throw new Error('今日の残り時間の日射予報がありません。日の出前または日没後の可能性があります。');
+  const text=rows.map(r=>`${String(r.hour).padStart(2,'0')}:00,${r.rad.toFixed(2)}`).join('\n');
+  const sum=rows.reduce((a,r)=>a+r.rad,0);
+  $('forecastText').value=text;
+  $('forecastDate').value=now.date;
+  $('sourceTotal').value=sum.toFixed(2);
+  calculate();
+  $('message').textContent='予報を取得し、潅水計画を自動計算しました。日射量と予定を確認してください。';
+  status.innerHTML=`<strong>取得成功</strong><br>${placeName}<br>対象日：${now.date}／残り時間 ${rows.length}時間分<br>残り時間の日射予報合計：${sum.toFixed(2)} MJ/㎡`;
+ }catch(error){
+  status.innerHTML=`<span class="error">取得できませんでした：${error.message}</span><br>通信環境を確認するか、「南関町の予報を取得」をお試しください。`;
+ }finally{
+  $('fetchForecast').disabled=false; $('fetchNankan').disabled=false;
+ }
+}
+$('fetchNankan').onclick=()=>loadSolarForecast(NANKAN.latitude,NANKAN.longitude,NANKAN.name);
+$('fetchForecast').onclick=()=>{
+ if(!navigator.geolocation){loadSolarForecast(NANKAN.latitude,NANKAN.longitude,NANKAN.name+'（位置情報非対応のため標準地点）');return;}
+ $('forecastStatus').textContent='現在地を確認しています…';
+ navigator.geolocation.getCurrentPosition(
+  pos=>loadSolarForecast(pos.coords.latitude,pos.coords.longitude,'GPS現在地'),
+  ()=>loadSolarForecast(NANKAN.latitude,NANKAN.longitude,NANKAN.name+'（GPS取得不可のため標準地点）'),
+  {enableHighAccuracy:true,timeout:10000,maximumAge:300000}
+ );
+};
 const demo=`05:00,0
 06:00,0
 07:00,0
