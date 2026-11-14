@@ -66,7 +66,8 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:8px 0 25px}
  <button id="fetchForecast">現在地から日射予報を取得</button>
  <button class="secondary" id="fetchNankan">南関町の予報を取得</button>
 </div>
-<div id="forecastStatus" class="forecast-status" aria-live="polite">まだ予報を取得していません。ボタンを押すと時間別日射量を自動入力します。</div>
+<div id="forecastStatus" class="forecast-status" aria-live="polite">まだ予報を取得していません。ボタンを押すと今日・明日の時間別日射量を取得します。</div>
+<div class="field" style="margin-top:10px"><label for="forecastDaySelect">表示する予報日</label><select id="forecastDaySelect" disabled><option value="">予報を取得してください</option></select></div>
 <p class="sub">予報データ：<a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>（CC BY 4.0）。屋外の日射予報値を使用するため、実際のハウス内日射量とは差が出る場合があります。取得後、必要に応じて数値を確認・修正してください。</p>
 </section>
 
@@ -106,7 +107,7 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:8px 0 25px}
 
 <section id="results" class="hidden">
 <section class="card">
-<h2>④ 今日の潅水計画</h2>
+<h2 id="resultHeading">④ 選択日の潅水計画</h2>
 <div class="metrics">
  <div class="metric"><small>予測日射量合計</small><strong id="mRad">—</strong><em>MJ/㎡</em></div>
  <div class="metric"><small>推定必要水量</small><strong id="mWater">—</strong><em>L / ハウス全体</em></div>
@@ -126,7 +127,7 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:8px 0 25px}
 <div class="tablewrap"><table><thead><tr><th>予報時刻</th><th>日射量</th><th>配分水量</th><th>潅水時間</th></tr></thead><tbody id="hourBody"></tbody></table></div>
 </section>
 </section>
-<footer>試算用ツール v1.1｜日射予報：Open-Meteo｜計算はこの端末で実行</footer>
+<footer>試算用ツール v1.2｜今日・翌日の日射予報：Open-Meteo｜計算はこの端末で実行</footer>
 </main>
 <script>
 const $=id=>document.getElementById(id);
@@ -137,6 +138,17 @@ function tokyoDateParts(date=new Date()){
  return {date:`${v.year}-${v.month}-${v.day}`,hour:Number(v.hour),minute:Number(v.minute)};
 }
 $('forecastDate').value=tokyoDateParts().date;
+let forecastByDate={};
+function applyForecastDate(date){
+ const rows=forecastByDate[date]; if(!rows||!rows.length)return;
+ $('forecastDate').value=date;
+ $('forecastText').value=rows.map(r=>`${String(r.hour).padStart(2,'0')}:00,${r.rad.toFixed(2)}`).join('\n');
+ const sum=rows.reduce((a,r)=>a+r.rad,0); $('sourceTotal').value=sum.toFixed(2);
+ $('resultHeading').textContent=`④ ${date}の潅水計画`;
+ calculate();
+ $('message').textContent=`${date}の予報で潅水計画を計算しました。`;
+}
+$('forecastDaySelect').onchange=e=>applyForecastDate(e.target.value);
 async function loadSolarForecast(latitude,longitude,placeName){
  const status=$('forecastStatus');
  let timeoutId;
@@ -154,28 +166,28 @@ async function loadSolarForecast(latitude,longitude,placeName){
   const data=await response.json();
   if(!data.hourly||!Array.isArray(data.hourly.time)||!Array.isArray(data.hourly.shortwave_radiation)) throw new Error('時間別日射量データが見つかりませんでした。');
   const now=tokyoDateParts();
-  const firstAllowedHour=now.hour+(now.minute>0?1:0);
-  const rows=[];
+  forecastByDate={};
   for(let i=0;i<data.hourly.time.length;i++){
    const stamp=data.hourly.time[i];
-   if(!stamp.startsWith(now.date+'T')) continue;
+   const date=stamp.slice(0,10);
    const hour=Number(stamp.slice(11,13));
-   if(hour<firstAllowedHour) continue;
    const watts=Number(data.hourly.shortwave_radiation[i]);
-   if(!Number.isFinite(watts)||watts<0) continue;
-   // Open-Meteo shortwave_radiation is hourly mean W/m²; convert one hour to MJ/m².
-   const mj=watts*0.0036;
-   rows.push({hour,rad:mj});
+   if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(watts)||watts<0) continue;
+   if(date===now.date && hour<now.hour+(now.minute>0?1:0)) continue;
+   if(!forecastByDate[date]) forecastByDate[date]=[];
+   forecastByDate[date].push({hour,rad:watts*0.0036});
   }
-  if(!rows.length) throw new Error('今日の残り時間の日射予報がありません。日の出前または日没後の可能性があります。');
-  const text=rows.map(r=>`${String(r.hour).padStart(2,'0')}:00,${r.rad.toFixed(2)}`).join('\n');
-  const sum=rows.reduce((a,r)=>a+r.rad,0);
-  $('forecastText').value=text;
-  $('forecastDate').value=now.date;
-  $('sourceTotal').value=sum.toFixed(2);
-  calculate();
-  $('message').textContent='予報を取得し、潅水計画を自動計算しました。日射量と予定を確認してください。';
-  status.innerHTML=`<strong>取得成功</strong><br>${placeName}<br>対象日：${now.date}／残り時間 ${rows.length}時間分<br>残り時間の日射予報合計：${sum.toFixed(2)} MJ/㎡`;
+  const dates=Object.keys(forecastByDate).sort().filter(d=>forecastByDate[d].length);
+  if(!dates.length) throw new Error('今日・明日の時間別日射予報が見つかりませんでした。');
+  const select=$('forecastDaySelect');
+  select.innerHTML=dates.map(d=>`<option value="${d}">${d===now.date?'今日': '明日'}（${d}）</option>`).join('');
+  select.disabled=false;
+  const selected=dates.includes(now.date)?now.date:dates[0];
+  select.value=selected;
+  applyForecastDate(selected);
+  const tomorrow=dates.find(d=>d>now.date);
+  const tomorrowText=tomorrow?`<br>翌日分：${forecastByDate[tomorrow].length}時間分を取得済み`:'<br>翌日分は今回の応答に含まれていません';
+  status.innerHTML=`<strong>取得成功</strong><br>${placeName}<br>取得日：${dates.join('・')}<br>今日：${forecastByDate[now.date]?.length||0}時間分${tomorrowText}<br>日付選択で今日・明日を切り替えられます。`;
  }catch(error){
   let detail=error.name==='AbortError'?'15秒以内に予報サーバーから応答がありませんでした。時間をおいて再試行してください。':error.message;
   if(error instanceof TypeError) detail='通信またはブラウザのデータ受信処理でエラーが発生しました。';
@@ -213,7 +225,7 @@ const demo=`05:00,0
 20:00,0
 21:00,0
 22:00,0`;
-$('demo').onclick=()=>{$('forecastText').value=demo;$('forecastDate').value='2026-11-12';$('sourceTotal').value='3.9';$('message').textContent='サンプルデータを読み込みました。';};
+$('demo').onclick=()=>{$('forecastText').value=demo;$('forecastDate').value='2026-11-12';$('sourceTotal').value='3.9';$('forecastDaySelect').value='';$('message').textContent='サンプルデータを読み込みました。';$('resultHeading').textContent='④ サンプル日の潅水計画';calculate();};
 $('clear').onclick=()=>{$('forecastText').value='';$('results').classList.add('hidden');$('message').textContent='入力を消去しました。';};
 function parseRows(){
  const rows=[];
