@@ -74,7 +74,7 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:8px 0 25px}
 <h2>③ 時間別の日射量を確認・入力</h2>
 <p class="sub">「このあとてんき」の表を見ながら入力できます。1行に「時刻,日射量」の形式で貼り付けることもできます。</p>
 <div class="grid">
- <div class="field"><label for="forecastDate">予報日</label><input id="forecastDate" type="date" value="2026-11-12"></div>
+ <div class="field"><label for="forecastDate">予報日</label><input id="forecastDate" type="date"></div>
  <div class="field"><label for="sourceTotal">予報画面の「このあと日射量」</label><input id="sourceTotal" type="number" step="0.01" placeholder="例 3.9"><div class="unit">照合用。計算には時間別データを使用</div></div>
 </div>
 <label for="forecastText" style="margin-top:12px">時間別データ（時刻,日射量）</label>
@@ -136,14 +136,21 @@ function tokyoDateParts(date=new Date()){
  const v={}; for(const p of parts) if(p.type!=='literal') v[p.type]=p.value;
  return {date:`${v.year}-${v.month}-${v.day}`,hour:Number(v.hour),minute:Number(v.minute)};
 }
+$('forecastDate').value=tokyoDateParts().date;
 async function loadSolarForecast(latitude,longitude,placeName){
  const status=$('forecastStatus');
- status.textContent='日射予報を取得しています…';
+ let timeoutId;
+ status.textContent='日射予報サーバーへ接続しています…';
  $('fetchForecast').disabled=true; $('fetchNankan').disabled=true;
  try{
   const params=new URLSearchParams({latitude:String(latitude),longitude:String(longitude),hourly:'shortwave_radiation',timezone:'Asia/Tokyo',forecast_days:'2'});
-  const response=await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`,{cache:'no-store'});
-  if(!response.ok) throw new Error(`予報サーバーとの通信に失敗しました（${response.status}）`);
+  const controller=new AbortController();
+  timeoutId=setTimeout(()=>controller.abort(),15000);
+  status.textContent='日射予報の応答を待っています（最大15秒）…';
+  const response=await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`,{cache:'no-store',signal:controller.signal});
+  clearTimeout(timeoutId); timeoutId=null;
+  status.textContent='予報データを受信しました。内容を確認しています…';
+  if(!response.ok) throw new Error(`予報サーバーとの通信に失敗しました（HTTP ${response.status}）`);
   const data=await response.json();
   if(!data.hourly||!Array.isArray(data.hourly.time)||!Array.isArray(data.hourly.shortwave_radiation)) throw new Error('時間別日射量データが見つかりませんでした。');
   const now=tokyoDateParts();
@@ -170,8 +177,11 @@ async function loadSolarForecast(latitude,longitude,placeName){
   $('message').textContent='予報を取得し、潅水計画を自動計算しました。日射量と予定を確認してください。';
   status.innerHTML=`<strong>取得成功</strong><br>${placeName}<br>対象日：${now.date}／残り時間 ${rows.length}時間分<br>残り時間の日射予報合計：${sum.toFixed(2)} MJ/㎡`;
  }catch(error){
-  status.innerHTML=`<span class="error">取得できませんでした：${error.message}</span><br>通信環境を確認するか、「南関町の予報を取得」をお試しください。`;
+  let detail=error.name==='AbortError'?'15秒以内に予報サーバーから応答がありませんでした。時間をおいて再試行してください。':error.message;
+  if(error instanceof TypeError) detail='通信またはブラウザのデータ受信処理でエラーが発生しました。';
+  status.innerHTML=`<span class="error">取得できませんでした：${detail}</span><br>手入力は引き続き利用できます。必要なら画面の内容を撮影して送ってください。`;
  }finally{
+  if(timeoutId) clearTimeout(timeoutId);
   $('fetchForecast').disabled=false; $('fetchNankan').disabled=false;
  }
 }
