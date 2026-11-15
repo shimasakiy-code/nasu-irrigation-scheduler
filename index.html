@@ -42,13 +42,13 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:8px 0 25px}
 </style>
 </head>
 <body>
-<header><h1>ナス日射比例潅水スケジューラー</h1><p id="headerProfile">あなたのハウス設定で、日射予報から潅水計画を試算</p></header>
+<header><h1>ナス日射比例潅水スケジューラー</h1><p>南関町・12aハウス用｜予報日射量から潅水計画を試算</p></header>
 <main>
 <section class="card">
-<h2>① あなたのハウス・潅水設定</h2>
-<p class="sub">ここで設定した内容は、このスマホ・ブラウザ内に保存されます。他の人の設定とは混ざりません。</p>
+<h2>① ハウス・潅水設定</h2>
+<p class="sub">ハウスごとの条件を入力してください。「この端末に設定を保存」を押すと、このスマホ・パソコンだけに保存されます。</p>
 <div class="grid">
- <div class="field"><label for="profileName">ハウス名・ニックネーム</label><input id="profileName" type="text" value="自分のナスハウス" maxlength="30" placeholder="例：第1ハウス"></div>
+ <div class="field"><label for="houseName">ハウス名（任意）</label><input id="houseName" type="text" value="マイハウス" maxlength="30" placeholder="例：第1ハウス"></div>
  <div class="field"><label for="area">栽培面積</label><input id="area" type="number" value="1200" min="1" step="10"><div class="unit">㎡</div></div>
  <div class="field"><label for="plants">株数</label><input id="plants" type="number" value="1823" min="1"><div class="unit">株</div></div>
  <div class="field"><label for="coef">日射量係数</label><input id="coef" type="number" value="250" min="0" step="5"><div class="unit">L / MJ・10a（仮設定・変更可）</div></div>
@@ -59,16 +59,16 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:8px 0 25px}
  <div class="field"><label for="rounding">潅水時間の丸め</label><select id="rounding"><option value="1">1秒単位</option><option value="5" selected>5秒単位</option><option value="10">10秒単位</option></select><div class="unit">短時間の頻繁なON/OFFを抑制</div></div>
 </div>
 <div class="actions">
- <button id="saveSettings">このハウス設定を保存</button>
+ <button id="saveSettings">この端末に設定を保存</button>
  <button class="light" id="resetSettings">初期設定に戻す</button>
 </div>
-<p id="settingsStatus" class="sub" aria-live="polite">設定はまだ保存されていません。</p>
-<p class="sub">ハウス全体の吐出量は、実測値を入力するのがおすすめです。240L/分は現在の南関町ハウスの理論値で、他のハウスにそのまま当てはまるとは限りません。</p>
+<p id="settingsStatus" class="forecast-status" aria-live="polite">初期設定を使用中です。設定を変更したら保存してください。</p>
+<p class="sub">初期値は南関町の12aハウス用です。吐出量240L/分は、10cmピッチ・20cc/分の点滴孔が約12,000個あるとして計算した理論値です。実測流量が分かったら変更してください。保存内容はこの端末・このブラウザ内だけに保管され、他の利用者には共有されません。</p>
 </section>
 
 <section class="card">
 <h2>② 今日の日射予報を自動取得</h2>
-<p class="sub">GPSを許可すると、その場所の日射予報を取得します。GPSが使えない場合は南関町を標準地点として使います。</p>
+<p class="sub">GPSで現在地を取得します。位置情報が使えない場合は、熊本県南関町を標準地点として予報を取得します。</p>
 <div class="actions" style="margin-top:8px">
  <button id="fetchForecast">現在地から日射予報を取得</button>
  <button class="secondary" id="fetchNankan">南関町の予報を取得</button>
@@ -134,23 +134,40 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:8px 0 25px}
 <div class="tablewrap"><table><thead><tr><th>予報時刻</th><th>日射量</th><th>配分水量</th><th>潅水時間</th></tr></thead><tbody id="hourBody"></tbody></table></div>
 </section>
 </section>
-<footer>試算用ツール v1.3｜設定は端末ごとに保存｜今日・翌日の日射予報：Open-Meteo</footer>
+<footer>試算用ツール v1.3｜ハウス設定は端末ごとに保存｜今日・翌日の日射予報：Open-Meteo</footer>
 </main>
 <script>
 const $=id=>document.getElementById(id);
 const NANKAN={latitude:33.0597,longitude:130.5438,name:'熊本県南関町（標準地点）'};
-const SETTINGS_KEY='nasuIrrigationHouseSettings_v1';
-const SETTING_IDS=['profileName','area','plants','coef','flow','threshold','split','startOffset','rounding'];
-const DEFAULT_SETTINGS={profileName:'自分のナスハウス',area:'1200',plants:'1823',coef:'250',flow:'240',threshold:'0.5',split:'1.2',startOffset:'30',rounding:'5'};
-function readSettings(){const v={};for(const id of SETTING_IDS)v[id]=$(id).value;return v;}
-function applySettings(v){for(const id of SETTING_IDS)if(v[id]!==undefined)$(id).value=v[id];updateProfileLabel();}
-function updateProfileLabel(){const name=$('profileName').value.trim()||'あなたのハウス';$('headerProfile').textContent=`${name}の設定で、日射予報から潅水計画を試算`; }
-function saveSettings(showMessage=true){try{localStorage.setItem(SETTINGS_KEY,JSON.stringify(readSettings()));updateProfileLabel();if(showMessage)$('settingsStatus').textContent='この端末にハウス設定を保存しました。次回もこの設定で使えます。';return true;}catch(e){if(showMessage)$('settingsStatus').textContent='このブラウザでは設定を保存できませんでした。';return false;}}
-function loadSettings(){try{const raw=localStorage.getItem(SETTINGS_KEY);if(raw){applySettings({...DEFAULT_SETTINGS,...JSON.parse(raw)});$('settingsStatus').textContent='保存済みのハウス設定を読み込みました。';}else{applySettings(DEFAULT_SETTINGS);$('settingsStatus').textContent='初期設定（南関町ハウスの値）です。必要に応じて変更して保存してください。';}}catch(e){applySettings(DEFAULT_SETTINGS);$('settingsStatus').textContent='初期設定を表示しています。';}}
-$('saveSettings').addEventListener('click',()=>saveSettings(true));
-$('resetSettings').addEventListener('click',()=>{if(confirm('ハウス設定を初期値に戻しますか？')){applySettings(DEFAULT_SETTINGS);saveSettings(false);$('settingsStatus').textContent='初期設定に戻しました。この端末に保存済みです。';calculate();}});
-$('profileName').addEventListener('input',updateProfileLabel);
-loadSettings();
+const SETTINGS_KEY='nasuIrrigationSchedulerSettings_v1';
+const DEFAULT_SETTINGS={houseName:'マイハウス',area:'1200',plants:'1823',coef:'250',flow:'240',threshold:'0.5',split:'1.2',startOffset:'30',rounding:'5'};
+const SETTING_IDS=Object.keys(DEFAULT_SETTINGS);
+function readSettings(){
+ try{
+  const saved=JSON.parse(localStorage.getItem(SETTINGS_KEY)||'null');
+  if(saved&&typeof saved==='object'){
+   SETTING_IDS.forEach(id=>{if(saved[id]!==undefined && $(id)) $(id).value=String(saved[id]);});
+   $('settingsStatus').textContent='この端末に保存されているハウス設定を読み込みました。';
+  }
+ }catch(e){$('settingsStatus').textContent='保存済み設定を読み込めませんでした。初期値で起動します。';}
+}
+function saveSettings(){
+ const data={};
+ SETTING_IDS.forEach(id=>data[id]=$(id).value);
+ try{
+  localStorage.setItem(SETTINGS_KEY,JSON.stringify(data));
+  $('settingsStatus').textContent=`「${data.houseName||'マイハウス'}」の設定をこの端末に保存しました。次回起動時も引き継がれます。`;
+ }catch(e){$('settingsStatus').textContent='このブラウザでは保存できませんでした。プライベートブラウズ設定などをご確認ください。';}
+}
+function resetSettings(){
+ SETTING_IDS.forEach(id=>$(id).value=DEFAULT_SETTINGS[id]);
+ try{localStorage.removeItem(SETTINGS_KEY);}catch(e){}
+ $('settingsStatus').textContent='初期設定に戻しました。必要に応じて保存してください。';
+ calculate();
+}
+$('saveSettings').addEventListener('click',saveSettings);
+$('resetSettings').addEventListener('click',resetSettings);
+readSettings();
 function tokyoDateParts(date=new Date()){
  const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date);
  const v={}; for(const p of parts) if(p.type!=='literal') v[p.type]=p.value;
@@ -266,7 +283,6 @@ function fmtTime(min){min=((min%1440)+1440)%1440;return `${String(Math.floor(min
 function calculate(){
  try{
   const rows=parseRows();
-  saveSettings(false);
   const area=+$('area').value, plants=+$('plants').value, coef=+$('coef').value, flow=+$('flow').value;
   const threshold=+$('threshold').value, split=+$('split').value, offset=+$('startOffset').value, unit=+$('rounding').value;
   if([area,plants,flow].some(x=>!Number.isFinite(x)||x<=0)||!Number.isFinite(coef)||coef<0)throw new Error('面積・株数・吐出量・係数を確認してください。');
